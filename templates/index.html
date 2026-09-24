@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatbot RAG</title>
+  <style>
+    :root { --bg:#f4f5f7; --card:#fff; --text:#1d2330; --muted:#6b7385; --accent:#2f5bea; --user:#2f5bea; --bot:#eef0f5; --border:#dfe3ec; }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#12151c; --card:#1a1e28; --text:#e7eaf2; --muted:#98a0b3; --accent:#6f8cff; --user:#3a5bd9; --bot:#242938; --border:#2b3142; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .app { max-width: 760px; height: 100dvh; margin: 0 auto; display:flex; flex-direction:column; padding: 16px; gap: 12px; }
+    header h1 { margin:0; font-size: 1.25rem; }
+    header p { margin: 2px 0 0; color: var(--muted); font-size: .875rem; }
+    #chat { flex:1; overflow-y:auto; background:var(--card); border:1px solid var(--border); border-radius:14px; padding:16px; display:flex; flex-direction:column; gap:12px; }
+    .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; line-height:1.5; white-space: pre-wrap; overflow-wrap:anywhere; }
+    .user { align-self:flex-end; background:var(--user); color:#fff; border-bottom-right-radius:4px; }
+    .bot  { align-self:flex-start; background:var(--bot); border-bottom-left-radius:4px; }
+    .bot.error { border:1px solid #d9534f; }
+    .bot.pensando { color:var(--muted); font-style:italic; }
+    details { align-self:flex-start; max-width:85%; font-size:.8125rem; color:var(--muted); margin-top:-6px; }
+    details summary { cursor:pointer; }
+    details .frag { margin-top:8px; padding:8px 10px; background:var(--bg); border:1px solid var(--border); border-radius:8px; white-space:pre-wrap; }
+    details .frag b { color:var(--text); }
+    form { display:flex; gap:8px; }
+    input { flex:1; padding:12px 14px; font-size:1rem; border:1px solid var(--border); border-radius:12px; background:var(--card); color:var(--text); }
+    input:focus { outline:2px solid var(--accent); outline-offset:1px; }
+    button { padding:0 20px; font-size:1rem; font-weight:600; border:0; border-radius:12px; background:var(--accent); color:#fff; cursor:pointer; }
+    button:disabled { opacity:.5; cursor:not-allowed; }
+    footer { color:var(--muted); font-size:.75rem; text-align:center; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>🤖 Chatbot RAG</h1>
+      <p>Pregunta sobre el contenido de los documentos cargados.</p>
+    </header>
+
+    <div id="chat" aria-live="polite">
+      <div class="msg bot">Hola 👋 Escribe tu pregunta y la responderé usando únicamente los documentos indexados.</div>
+    </div>
+
+    <form id="form" autocomplete="off">
+      <input id="mensaje" type="text" placeholder="Escribe tu pregunta..." maxlength="1000" required autofocus>
+      <button id="enviar" type="submit">Enviar</button>
+    </form>
+
+    <footer>LLM: {{ modelo }} (Groq) · Recuperación: ChromaDB</footer>
+  </div>
+
+  <script>
+    const chat = document.getElementById("chat");
+    const form = document.getElementById("form");
+    const input = document.getElementById("mensaje");
+    const boton = document.getElementById("enviar");
+
+    function burbuja(texto, clase) {
+      const el = document.createElement("div");
+      el.className = "msg " + clase;
+      el.textContent = texto;          // textContent evita inyección de HTML
+      chat.appendChild(el);
+      chat.scrollTop = chat.scrollHeight;
+      return el;
+    }
+
+    function fuentes(lista) {
+      if (!lista || !lista.length) return;
+      const det = document.createElement("details");
+      const sum = document.createElement("summary");
+      sum.textContent = "Fuentes usadas (" + lista.length + ")";
+      det.appendChild(sum);
+      lista.forEach((f, i) => {
+        const d = document.createElement("div");
+        d.className = "frag";
+        const t = document.createElement("b");
+        t.textContent = "[" + (i + 1) + "] " + f.fuente;
+        d.appendChild(t);
+        d.appendChild(document.createTextNode("\n" + f.texto));
+        det.appendChild(d);
+      });
+      chat.appendChild(det);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pregunta = input.value.trim();
+      if (!pregunta) return;
+
+      burbuja(pregunta, "user");
+      input.value = "";
+      boton.disabled = true;
+      const espera = burbuja("Buscando en los documentos...", "bot pensando");
+
+      try {
+        const r = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mensaje: pregunta }),
+        });
+        const datos = await r.json();
+        espera.remove();
+        if (!r.ok) {
+          burbuja(datos.error || "Ocurrió un error.", "bot error");
+        } else {
+          burbuja(datos.respuesta, "bot");
+          fuentes(datos.fuentes);
+        }
+      } catch (err) {
+        espera.remove();
+        burbuja("No pude conectar con el servidor. Intenta de nuevo.", "bot error");
+      } finally {
+        boton.disabled = false;
+        input.focus();
+      }
+    });
+  </script>
+</body>
+</html>
